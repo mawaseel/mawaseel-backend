@@ -39,3 +39,10 @@ Firebase Console / Google Cloud Console > Project Settings > Service Accounts > 
 موقع الأدمن مبرمج تلقائيًا لاستخدام:
 - Local: `http://127.0.0.1:8787`
 - Production: `https://api.mawaseel.ps`
+
+## Onboarding V3 endpoints
+- `POST /api/verifications/:uid/approve` — approves WhatsApp verification and starts a 48-hour trial.
+- `POST /api/verifications/:uid/reject` — rejects a verification request.
+- `POST /api/partners/:uid/approve-marketer` — manually approves a verified user as an official marketer at any time.
+
+New admin permissions: `manageVerifications`, `approveMarketers`.

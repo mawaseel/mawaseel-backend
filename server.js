@@ -99,7 +99,9 @@ app.post('/api/admins', requireAdmin, requireManageAdmins, async (req, res) => {
     ordersCreate: req.body?.permissions?.ordersCreate === true,
     ordersEdit: req.body?.permissions?.ordersEdit === true,
     ordersDelete: req.body?.permissions?.ordersDelete === true,
-    manageAdmins: req.body?.permissions?.manageAdmins === true
+    manageAdmins: req.body?.permissions?.manageAdmins === true,
+    manageVerifications: req.body?.permissions?.manageVerifications === true,
+    approveMarketers: req.body?.permissions?.approveMarketers === true
   };
 
   if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
@@ -131,6 +133,73 @@ app.post('/api/admins', requireAdmin, requireManageAdmins, async (req, res) => {
     }
     if (error?.code === 'auth/email-already-exists') return res.status(409).json({ ok: false, error: 'username_exists' });
     return res.status(500).json({ ok: false, error: 'create_admin_failed' });
+  }
+});
+
+
+function requireVerificationManager(req, res, next) {
+  if (req.isPrimaryAdmin || req.adminData?.permissions?.manageVerifications === true) return next();
+  return res.status(403).json({ ok: false, error: 'manage_verifications_required' });
+}
+function requireMarketerApprover(req, res, next) {
+  if (req.isPrimaryAdmin || req.adminData?.permissions?.approveMarketers === true) return next();
+  return res.status(403).json({ ok: false, error: 'approve_marketers_required' });
+}
+
+app.post('/api/verifications/:uid/approve', requireAdmin, requireVerificationManager, async (req, res) => {
+  const uid = String(req.params.uid || '').trim();
+  if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+  try {
+    const userRef = db.doc(`users/${uid}`), requestRef = db.doc(`verificationRequests/${uid}`);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return res.status(404).json({ ok: false, error: 'user_not_found' });
+    const now = admin.firestore.Timestamp.now();
+    const end = admin.firestore.Timestamp.fromMillis(now.toMillis() + 2 * 24 * 60 * 60 * 1000);
+    const batch = db.batch();
+    batch.set(userRef, {
+      verificationStatus: 'approved', verifiedAt: now, verifiedBy: req.adminUser.uid,
+      trialStatus: 'active', trialStartedAt: now, trialEndsAt: end,
+      marketerStatus: 'trial', marketerApplicationStatus: 'pending'
+    }, { merge: true });
+    batch.set(requestRef, { status: 'approved', reviewedAt: now, reviewedBy: req.adminUser.uid }, { merge: true });
+    await batch.commit();
+    return res.json({ ok: true, uid, trialEndsAt: end.toDate().toISOString() });
+  } catch (error) {
+    console.error('Approve verification:', error);
+    return res.status(500).json({ ok: false, error: 'approve_verification_failed' });
+  }
+});
+
+app.post('/api/verifications/:uid/reject', requireAdmin, requireVerificationManager, async (req, res) => {
+  const uid = String(req.params.uid || '').trim();
+  if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+  try {
+    const now = admin.firestore.Timestamp.now();
+    const batch = db.batch();
+    batch.set(db.doc(`users/${uid}`), { verificationStatus: 'rejected', verificationRejectedAt: now, verificationReviewedBy: req.adminUser.uid }, { merge: true });
+    batch.set(db.doc(`verificationRequests/${uid}`), { status: 'rejected', reviewedAt: now, reviewedBy: req.adminUser.uid }, { merge: true });
+    await batch.commit();
+    return res.json({ ok: true, uid });
+  } catch (error) {
+    console.error('Reject verification:', error);
+    return res.status(500).json({ ok: false, error: 'reject_verification_failed' });
+  }
+});
+
+app.post('/api/partners/:uid/approve-marketer', requireAdmin, requireMarketerApprover, async (req, res) => {
+  const uid = String(req.params.uid || '').trim();
+  if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+  try {
+    const ref = db.doc(`users/${uid}`), snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ ok: false, error: 'user_not_found' });
+    const data = snap.data() || {};
+    if (data.verificationStatus !== 'approved') return res.status(400).json({ ok: false, error: 'verification_required' });
+    const now = admin.firestore.Timestamp.now();
+    await ref.set({ marketerStatus: 'approved', marketerApplicationStatus: 'approved', marketerApprovedAt: now, marketerApprovedBy: req.adminUser.uid, trialStatus: 'approved' }, { merge: true });
+    return res.json({ ok: true, uid });
+  } catch (error) {
+    console.error('Approve marketer:', error);
+    return res.status(500).json({ ok: false, error: 'approve_marketer_failed' });
   }
 });
 
