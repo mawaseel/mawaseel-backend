@@ -1,48 +1,28 @@
-# Mawaseel Admin Backend
+# Mawaseel Admin API — V4 Commission
 
-Backend آمن لإدارة حسابات الأدمنز باستخدام Firebase Admin SDK.
+Backend for the Mawaseel 50/20 commission and customer ownership system.
 
-## ماذا يفعل؟
-- يتحقق من Firebase ID Token القادم من موقع الأدمن.
-- يسمح بإنشاء أدمن جديد فقط لمن لديه `manageAdmins` أو للحساب الأساسي.
-- يسمح بحذف أدمن من **Firebase Authentication + Firestore** للحساب الأساسي فقط.
-- يمنع حذف الحساب الأساسي أو حذف الحساب الحالي لنفسه.
-- لا يحفظ Service Account أو كلمات السر داخل ملفات HTML.
+## What it enforces
+- A customer phone belongs to exactly one marketer (`customers/{sha256(phone)}`).
+- First order: 50% of the profit attributed to that customer's order.
+- Later orders: 20% investment commission.
+- Trial-period orders: 0% commission.
+- Hidden customer phone numbers remain in the admin-only `customers` collection and are not copied into partner-readable orders.
+- Admin creation/deletion, verification, and marketer approval from V3 remain supported.
 
-## تشغيل محلي
-1. انسخ `.env.example` إلى `.env`.
-2. ضع `FIREBASE_SERVICE_ACCOUNT_JSON` الحقيقي داخل `.env`.
-3. شغل:
-   ```bash
-   npm install
-   npm start
-   ```
-4. الـAPI يعمل افتراضيًا على `http://127.0.0.1:8787`.
+## Required Render environment variables
+- `FIREBASE_SERVICE_ACCOUNT_JSON`
+- `PRIMARY_ADMIN_EMAIL`
+- `ALLOWED_ORIGINS` (include `https://mawaseel.github.io` while using GitHub Pages)
 
-## الحصول على Service Account
-Firebase Console / Google Cloud Console > Project Settings > Service Accounts > Generate new private key.
-ضع JSON داخل متغير البيئة فقط. **لا ترفعه مع الموقع ولا GitHub.**
+## Main API routes
+- `GET /health`
+- `POST /api/orders/first`
+- `GET /api/customers/lookup?phone=...`
+- `POST /api/orders/investment`
+- `PATCH /api/orders/:id`
+- `DELETE /api/orders/:id`
+- `POST /api/maintenance/migrate-legacy-orders` (PRIMARY only)
+- Existing admin/verification/approval routes are retained.
 
-## النشر
-يمكن نشر مجلد `backend` على Render أو Railway أو Cloud Run.
-للإنتاج يفضل ربطه بدومين:
-`https://api.mawaseel.ps`
-
-على Render:
-- ارفع مجلد backend إلى مستودع خاص.
-- Build Command: `npm install`
-- Start Command: `npm start`
-- أضف Environment Variables من `.env.example`.
-- بعد النشر اربط `api.mawaseel.ps` بالخدمة.
-
-## ملاحظة
-موقع الأدمن مبرمج تلقائيًا لاستخدام:
-- Local: `http://127.0.0.1:8787`
-- Production: `https://api.mawaseel.ps`
-
-## Onboarding V3 endpoints
-- `POST /api/verifications/:uid/approve` — approves WhatsApp verification and starts a 48-hour trial.
-- `POST /api/verifications/:uid/reject` — rejects a verification request.
-- `POST /api/partners/:uid/approve-marketer` — manually approves a verified user as an official marketer at any time.
-
-New admin permissions: `manageVerifications`, `approveMarketers`.
+Never commit `.env` or a Firebase service-account JSON file to GitHub.
