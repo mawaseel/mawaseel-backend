@@ -1,0 +1,68 @@
+MAWASEEL BACKEND-ONLY FIRESTORE — خطوات التركيب
+================================================
+
+الفكرة:
+- Firebase Authentication يبقى في المتصفح لتسجيل الدخول فقط.
+- لا توجد أي قراءة أو كتابة Firestore في ملفات الموقع.
+- كل البيانات تمر عبر Backend على Render وتحتاج Firebase ID Token.
+- Firestore Rules = DENY ALL للمتصفح.
+- Firebase Admin SDK في Render وحده يستطيع الوصول للبيانات.
+
+ترتيب التحديث (مهم حتى ما يوقف الموقع):
+
+1) BACKEND أولاً
+   - ارفع محتويات مجلد backend الجديد إلى مستودع Backend على GitHub.
+   - Render سيعمل Deploy تلقائياً.
+   - Environment Variables المطلوبة في Render:
+       PRIMARY_ADMIN_EMAIL=mw.gl3tvl71en6c@mawaseel.ps
+       ALLOWED_ORIGINS=https://mawaseel.com,https://admin.mawaseel.com,https://dashboard.mawaseel.com
+       FIREBASE_SERVICE_ACCOUNT_JSON=<محتوى service account JSON الكامل>
+   - لا ترفع .env أو Service Account إلى GitHub.
+   - تأكد أن /health يرجع ok:true وإصدار 5-backend-lockdown.
+
+2) ارفع الواجهات الجديدة
+   - main -> mawaseel.com
+   - dashboard -> dashboard.mawaseel.com
+   - admin -> admin.mawaseel.com
+   الملفات الجديدة لا تحتوي Firebase Firestore SDK نهائياً.
+
+3) اختبر تسجيل الدخول والصفحات قبل إغلاق Firestore
+   - سجل دخول مستخدم عادي.
+   - افتح لوحة التحكم.
+   - سجل دخول Admin.
+   - تأكد أن الطلبات تظهر.
+
+4) اقفل Firestore بالكامل
+   Firebase Console -> Firestore Database -> Rules
+   انسخ firestore.rules واضغط Publish.
+   بعدها أي getDoc/setDoc/query مباشر من المتصفح سيعطي PERMISSION_DENIED.
+
+5) Storage Rules
+   Firebase Console -> Storage -> Rules
+   انسخ storage.rules واضغط Publish.
+   يسمح فقط للمستخدم برفع صورة حسابه (أقل من 2MB وصورة فقط).
+   كل المسارات الأخرى مقفلة.
+
+6) إذا Realtime Database مفعلة عندك ولا تستخدمها
+   ضع محتوى database.rules.json كقواعد لها حتى تكون read/write = false.
+
+7) Authentication
+   Firebase Console -> Authentication -> Settings -> Authorized domains
+   تأكد من وجود:
+     mawaseel.com
+     admin.mawaseel.com
+     dashboard.mawaseel.com
+
+ماذا لو شخص نسخ firebaseConfig؟
+--------------------------------
+لن يستطيع قراءة/كتابة Firestore مباشرة إطلاقاً بعد نشر قواعد DENY ALL.
+يمكنه معرفة Project ID و API key لأن Firebase Auth يحتاجهما في المتصفح، لكن هذه ليست Service Account ولا صلاحية قاعدة بيانات.
+أي عملية بيانات تمر عبر API وتحتاج ID Token، والـBackend يقرر ما يسمح به:
+- مستخدم عادي: حسابه وطلباته فقط.
+- المستخدم لا يستطيع تغيير role / verificationStatus / marketerStatus / commission.
+- إنشاء/تعديل/حذف الطلبات: Admin + Permission فقط.
+- أرقام العملاء الكاملة: Admin API فقط.
+- حذف Admin: Primary Admin فقط.
+
+ملاحظة مهمة:
+أي مستخدم جديد يستطيع إنشاء حسابه هو نفسه لأن التسجيل في مواصيل مفتوح. هذا لا يعني وصولاً عاماً للقاعدة؛ الـBackend يسمح له فقط بإنشاء/تحديث ملفه الشخصي بالحقول المسموحة.

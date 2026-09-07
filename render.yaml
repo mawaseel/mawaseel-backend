@@ -12,6 +12,6 @@ services:
       - key: PRIMARY_ADMIN_EMAIL
         value: mw.gl3tvl71en6c@mawaseel.ps
       - key: ALLOWED_ORIGINS
-        value: https://mawaseel.github.io,https://admin.mawaseel.ps,https://dashboard.mawaseel.ps
+        value: https://mawaseel.com,https://admin.mawaseel.com,https://dashboard.mawaseel.com
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
         sync: false

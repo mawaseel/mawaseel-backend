@@ -7,7 +7,7 @@ import admin from 'firebase-admin';
 
 const PORT = Number(process.env.PORT || 8787);
 const PRIMARY_ADMIN_EMAIL = String(process.env.PRIMARY_ADMIN_EMAIL || 'mw.gl3tvl71en6c@mawaseel.ps').toLowerCase();
-const allowedOrigins = String(process.env.ALLOWED_ORIGINS || 'https://mawaseel.github.io,https://admin.mawaseel.ps,https://dashboard.mawaseel.ps,http://127.0.0.1:5502,http://localhost:5502,http://127.0.0.1:5500,http://localhost:5500')
+const allowedOrigins = String(process.env.ALLOWED_ORIGINS || 'https://mawaseel.com,https://admin.mawaseel.com,https://dashboard.mawaseel.com')
   .split(',').map(x => x.trim()).filter(Boolean);
 
 function initFirebaseAdmin() {
@@ -30,7 +30,7 @@ const auth = admin.auth();
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(express.json({ limit: '300kb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -80,12 +80,49 @@ async function loadIdentity(req) {
   const snap = await db.doc(`users/${decoded.uid}`).get();
   return { decoded, snap, data: snap.exists ? snap.data() : {} };
 }
+
+async function requireUser(req, res, next) {
+  try {
+    const { decoded, snap, data } = await loadIdentity(req);
+    req.user = decoded; req.userSnap = snap; req.userData = data || {};
+    next();
+  } catch (e) {
+    console.error('User auth:', e);
+    return res.status(e.status || 401).json({ ok: false, error: e.code || 'invalid_token' });
+  }
+}
+function partnerCode(uid) {
+  return 'MW-' + String(uid || 'PARTNER').replace(/[^a-z0-9]/gi, '').slice(0, 10).toUpperCase();
+}
+function jsonSafe(v) {
+  if (v == null) return v;
+  if (v instanceof admin.firestore.Timestamp) return v.toDate().toISOString();
+  if (Array.isArray(v)) return v.map(jsonSafe);
+  if (typeof v === 'object') {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) out[k] = jsonSafe(val);
+    return out;
+  }
+  return v;
+}
+function docRow(d) { return { id: d.id, ...jsonSafe(d.data() || {}) }; }
+function publicProfile(data = {}) {
+  const allowed = ['firstName','lastName','region','city','whatsapp','email','photoURL','partnerCode','role','isAdmin','active','isPrimaryAdmin','adminName','adminUsername','permissions','verificationStatus','marketerStatus','trialStatus','trialStartedAt','trialEndsAt','marketerApplicationStatus','createdAt','verifiedAt','marketerApprovedAt'];
+  const out = {}; for (const k of allowed) if (data[k] !== undefined) out[k] = jsonSafe(data[k]); return out;
+}
 async function requireAdmin(req, res, next) {
   try {
     const { decoded, data } = await loadIdentity(req);
-    const ok = data?.active !== false && (data?.role === 'admin' || data?.isAdmin === true);
+    let effective = data || {};
+    const primaryByEmail = String(decoded.email || '').toLowerCase() === PRIMARY_ADMIN_EMAIL;
+    if (primaryByEmail && !(effective.role === 'admin' || effective.isAdmin === true)) {
+      const permissions = { ordersCreate:true, ordersEdit:true, ordersDelete:true, manageAdmins:true, manageVerifications:true, approveMarketers:true };
+      await db.doc(`users/${decoded.uid}`).set({ role:'admin', isAdmin:true, active:true, isPrimaryAdmin:true, email:decoded.email || PRIMARY_ADMIN_EMAIL, adminName:effective.adminName || 'الحساب الأساسي', permissions, updatedAt:admin.firestore.FieldValue.serverTimestamp() }, { merge:true });
+      effective = { ...effective, role:'admin', isAdmin:true, active:true, isPrimaryAdmin:true, permissions };
+    }
+    const ok = effective?.active !== false && (effective?.role === 'admin' || effective?.isAdmin === true);
     if (!ok) return res.status(403).json({ ok: false, error: 'admin_required' });
-    req.adminUser = decoded; req.adminData = data || {}; req.isPrimaryAdmin = isPrimaryIdentity(decoded, data || {}); next();
+    req.adminUser = decoded; req.adminData = effective || {}; req.isPrimaryAdmin = isPrimaryIdentity(decoded, effective || {}); next();
   } catch (e) { console.error('Admin auth:', e); return res.status(e.status || 401).json({ ok: false, error: e.code || 'invalid_token' }); }
 }
 const requirePermission = name => (req, res, next) => {
@@ -94,9 +131,96 @@ const requirePermission = name => (req, res, next) => {
 };
 function requirePrimary(req, res, next) { if (req.isPrimaryAdmin) return next(); return res.status(403).json({ ok: false, error: 'primary_admin_required' }); }
 
-app.get('/', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '4-commission' }));
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '4-commission' }));
-app.get('/api/me', requireAdmin, (req, res) => res.json({ ok: true, uid: req.adminUser.uid, email: req.adminUser.email || null, primary: req.isPrimaryAdmin, permissions: req.adminData.permissions || {} }));
+app.get('/', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '5-backend-lockdown' }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '5-backend-lockdown' }));
+
+
+// ---------- Authenticated user API: the browser never talks to Firestore directly ----------
+app.get('/api/session', requireUser, async (req, res) => {
+  const exists = req.userSnap?.exists === true;
+  let data = req.userData || {};
+  if (exists && !(data.role === 'admin' || data.isAdmin === true) && !data.partnerCode) {
+    const code = partnerCode(req.user.uid);
+    await db.doc(`users/${req.user.uid}`).set({partnerCode:code},{merge:true});
+    data = {...data,partnerCode:code};
+  }
+  return res.json({ ok:true, exists, uid:req.user.uid, email:req.user.email || null, profile: exists ? publicProfile(data) : null });
+});
+
+app.put('/api/profile', requireUser, async (req, res) => {
+  try {
+    const existing = req.userData || {};
+    if (existing.role === 'admin' || existing.isAdmin === true) return res.status(403).json({ok:false,error:'admin_profile_protected'});
+    const firstName = String(req.body?.firstName || '').trim().slice(0,80);
+    const lastName = String(req.body?.lastName || '').trim().slice(0,80);
+    const region = String(req.body?.region || '').trim().slice(0,80);
+    const city = String(req.body?.city || '').trim().slice(0,100);
+    const whatsapp = String(req.body?.whatsapp || '').trim().slice(0,30);
+    const photoURL = String(req.body?.photoURL || '').trim().slice(0,1200);
+    if (!firstName || !lastName || !region || !city || !whatsapp) return res.status(400).json({ok:false,error:'missing_profile_fields'});
+    const code = existing.partnerCode || partnerCode(req.user.uid);
+    const payload = { firstName,lastName,region,city,whatsapp,email:req.user.email || '',photoURL,partnerCode:code,role:'partner',verificationStatus:existing.verificationStatus || 'required',marketerStatus:existing.marketerStatus || 'unverified',trialStatus:existing.trialStatus || 'not_started',updatedAt:admin.firestore.FieldValue.serverTimestamp() };
+    if (!req.userSnap.exists) payload.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    await db.doc(`users/${req.user.uid}`).set(payload,{merge:true});
+    const fresh = await db.doc(`users/${req.user.uid}`).get();
+    return res.json({ok:true,profile:publicProfile(fresh.data()||{})});
+  } catch(e){ console.error('Save profile:',e); return res.status(500).json({ok:false,error:'save_profile_failed'}); }
+});
+
+app.get('/api/verification-request', requireUser, async (req,res)=>{
+  try { const s=await db.doc(`verificationRequests/${req.user.uid}`).get(); return res.json({ok:true,request:s.exists?docRow(s):null}); }
+  catch(e){ console.error(e); return res.status(500).json({ok:false,error:'verification_request_failed'}); }
+});
+app.post('/api/verification-request', requireUser, async (req,res)=>{
+  try {
+    const u=await db.doc(`users/${req.user.uid}`).get(); if(!u.exists) return res.status(404).json({ok:false,error:'profile_required'});
+    const p=u.data()||{}; if(!p.whatsapp) return res.status(400).json({ok:false,error:'whatsapp_required'});
+    const now=nowTs();
+    await db.doc(`verificationRequests/${req.user.uid}`).set({userId:req.user.uid,fullName:[p.firstName,p.lastName].filter(Boolean).join(' ')||req.user.name||'مستخدم',email:p.email||req.user.email||'',whatsapp:p.whatsapp,status:'pending',requestedAt:now,updatedAt:now},{merge:true});
+    return res.json({ok:true});
+  } catch(e){ console.error(e); return res.status(500).json({ok:false,error:'create_verification_failed'}); }
+});
+
+app.get('/api/partner/orders', requireUser, async (req,res)=>{
+  try {
+    const snap=await db.collection('orders').where('partnerId','==',req.user.uid).get();
+    const orders=snap.docs.map(docRow).sort((a,b)=>new Date(b.updatedAt||b.createdAt||0)-new Date(a.updatedAt||a.createdAt||0));
+    return res.json({ok:true,orders});
+  } catch(e){ console.error(e); return res.status(500).json({ok:false,error:'orders_load_failed'}); }
+});
+app.get('/api/trial', requireUser, async (req,res)=>{
+  try {
+    const u=await db.doc(`users/${req.user.uid}`).get(); if(!u.exists) return res.status(404).json({ok:false,error:'profile_required'});
+    const snap=await db.collection('orders').where('partnerId','==',req.user.uid).get();
+    return res.json({ok:true,profile:publicProfile(u.data()||{}),orders:snap.docs.map(docRow)});
+  } catch(e){ console.error(e); return res.status(500).json({ok:false,error:'trial_load_failed'}); }
+});
+
+// ---------- Admin read/update API ----------
+app.get('/api/admin/bootstrap', requireAdmin, async (req,res)=>{
+  try {
+    const [usersSnap,ordersSnap,customersSnap,verSnap]=await Promise.all([
+      db.collection('users').get(),db.collection('orders').get(),db.collection('customers').get(),db.collection('verificationRequests').get()
+    ]);
+    const users=usersSnap.docs.map(docRow);
+    const missing=users.filter(x=>!(x.role==='admin'||x.isAdmin===true)&&!x.partnerCode);
+    if(missing.length){ const batch=db.batch(); for(const u of missing) batch.set(db.doc(`users/${u.id}`),{partnerCode:partnerCode(u.id)},{merge:true}); await batch.commit(); for(const u of missing) u.partnerCode=partnerCode(u.id); }
+    return res.json({ok:true,currentAdmin:publicProfile(req.adminData),primary:req.isPrimaryAdmin,users,orders:ordersSnap.docs.map(docRow),customers:customersSnap.docs.map(docRow),verificationRequests:verSnap.docs.map(docRow)});
+  } catch(e){ console.error('Admin bootstrap:',e); return res.status(500).json({ok:false,error:'admin_bootstrap_failed'}); }
+});
+app.patch('/api/admins/:uid', requireAdmin, requirePermission('manageAdmins'), async (req,res)=>{
+  const uid=String(req.params.uid||'').trim(); if(!uid)return res.status(400).json({ok:false,error:'uid_required'});
+  try{
+    const ref=db.doc(`users/${uid}`), snap=await ref.get(); if(!snap.exists)return res.status(404).json({ok:false,error:'admin_not_found'});
+    const d=snap.data()||{}; if(!(d.role==='admin'||d.isAdmin===true))return res.status(400).json({ok:false,error:'target_not_admin'});
+    if(d.isPrimaryAdmin===true || String(d.email||'').toLowerCase()===PRIMARY_ADMIN_EMAIL) return res.status(403).json({ok:false,error:'primary_admin_protected'});
+    const patch={updatedAt:admin.firestore.FieldValue.serverTimestamp(),updatedBy:req.adminUser.uid};
+    if(typeof req.body?.active==='boolean') patch.active=req.body.active;
+    if(req.body?.permissions && typeof req.body.permissions==='object') patch.permissions={ordersCreate:req.body.permissions.ordersCreate===true,ordersEdit:req.body.permissions.ordersEdit===true,ordersDelete:req.body.permissions.ordersDelete===true,manageAdmins:req.body.permissions.manageAdmins===true,manageVerifications:req.body.permissions.manageVerifications===true,approveMarketers:req.body.permissions.approveMarketers===true};
+    await ref.set(patch,{merge:true}); return res.json({ok:true});
+  }catch(e){console.error(e);return res.status(500).json({ok:false,error:'update_admin_failed'});}
+});
+app.get('/api/me', requireAdmin, (req, res) => res.json({ ok: true, uid: req.adminUser.uid, email: req.adminUser.email || null, primary: req.isPrimaryAdmin, profile: publicProfile(req.adminData), permissions: req.adminData.permissions || {} }));
 
 app.post('/api/admins', requireAdmin, requirePermission('manageAdmins'), async (req, res) => {
   const name = String(req.body?.name || '').trim();

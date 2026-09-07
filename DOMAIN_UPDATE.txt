@@ -1,0 +1,17 @@
+Mawaseel domain update
+======================
+Main:      https://mawaseel.com/
+Admin:     https://admin.mawaseel.com/
+Dashboard: https://dashboard.mawaseel.com/
+Backend API remains on Render unless api.mawaseel.com is connected later.
+
+Firebase Authentication:
+Add these under Authentication > Settings > Authorized domains:
+- mawaseel.com
+- admin.mawaseel.com
+- dashboard.mawaseel.com
+
+Render ALLOWED_ORIGINS:
+https://mawaseel.com,https://admin.mawaseel.com,https://dashboard.mawaseel.com
+
+Note: existing internal Firebase admin email identifiers ending in @mawaseel.ps / @admin.mawaseel.ps were intentionally preserved so existing admin accounts do not break. They are authentication identifiers, not navigation URLs.

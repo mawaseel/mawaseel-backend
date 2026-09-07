@@ -13,7 +13,7 @@ Backend for the Mawaseel 50/20 commission and customer ownership system.
 ## Required Render environment variables
 - `FIREBASE_SERVICE_ACCOUNT_JSON`
 - `PRIMARY_ADMIN_EMAIL`
-- `ALLOWED_ORIGINS` (include `https://mawaseel.github.io` while using GitHub Pages)
+- `ALLOWED_ORIGINS` (include `https://mawaseel.com` while using GitHub Pages)
 
 ## Main API routes
 - `GET /health`
@@ -26,3 +26,8 @@ Backend for the Mawaseel 50/20 commission and customer ownership system.
 - Existing admin/verification/approval routes are retained.
 
 Never commit `.env` or a Firebase service-account JSON file to GitHub.
+
+## Backend-only Firestore (V5 Lockdown)
+الواجهات الجديدة لا تستورد Firestore SDK. كل بيانات users/orders/customers/verificationRequests تمر عبر هذا API مع Firebase ID Token.
+بعد نشر الواجهات والـBackend، انشر firestore.rules المرفق (deny all). Firebase Admin SDK في هذا السيرفر يتجاوز Firestore client rules بشكل آمن.
+راجع SECURITY_SETUP.txt قبل النشر.

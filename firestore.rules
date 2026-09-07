@@ -1,55 +1,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function userDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function isAdmin() {
-      return signedIn() && userDoc().data.get('active', true) != false &&
-        (userDoc().data.get('role', '') == 'admin' || userDoc().data.get('isAdmin', false) == true);
+    // كل Firestore مقفول عن تطبيقات الويب/الموبايل بالكامل.
+    // القراءة والكتابة تتم فقط من Backend باستخدام Firebase Admin SDK.
+    match /{document=**} {
+      allow read, write: if false;
     }
-    function isPrimaryAdmin() { return isAdmin() && request.auth.token.email == 'mw.gl3tvl71en6c@mawaseel.ps'; }
-    function hasPermission(name) { return isPrimaryAdmin() || (isAdmin() && userDoc().data.get('permissions', {}).get(name, false) == true); }
-
-    match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow create: if signedIn() && request.auth.uid == userId
-        && request.resource.data.get('role', 'partner') == 'partner'
-        && request.resource.data.get('isAdmin', false) == false;
-      allow update: if signedIn() && request.auth.uid == userId
-        && request.resource.data.get('role', 'partner') == resource.data.get('role', 'partner')
-        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
-        && request.resource.data.get('verificationStatus', 'required') == resource.data.get('verificationStatus', 'required')
-        && request.resource.data.get('trialStatus', 'not_started') == resource.data.get('trialStatus', 'not_started')
-        && request.resource.data.get('marketerStatus', 'unverified') == resource.data.get('marketerStatus', 'unverified')
-        && request.resource.data.get('trialStartedAt', null) == resource.data.get('trialStartedAt', null)
-        && request.resource.data.get('trialEndsAt', null) == resource.data.get('trialEndsAt', null)
-        && request.resource.data.get('marketerApprovedAt', null) == resource.data.get('marketerApprovedAt', null);
-      allow update: if hasPermission('manageAdmins') && (isPrimaryAdmin() || resource.data.get('isPrimaryAdmin', false) != true);
-      allow delete: if isPrimaryAdmin() && resource.data.get('isPrimaryAdmin', false) != true;
-    }
-
-    match /verificationRequests/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow create, update: if signedIn() && request.auth.uid == userId
-        && request.resource.data.get('userId', '') == request.auth.uid
-        && request.resource.data.get('status', '') == 'pending';
-      allow delete: if false;
-    }
-
-    // الرقم الحقيقي محفوظ هنا فقط، والمسوق لا يستطيع قراءة هذه المجموعة إطلاقًا.
-    match /customers/{customerId} {
-      allow read: if isAdmin();
-      allow write: if false; // كل الكتابات الحساسة تتم من Backend عبر Firebase Admin SDK.
-    }
-
-    match /orders/{orderId} {
-      allow read: if signedIn() && (isAdmin() || resource.data.partnerId == request.auth.uid);
-      allow create: if false; // الإنشاء عبر Backend حتى لا يمكن تزوير النسبة/العمولة أو ملكية الزبون.
-      allow update: if hasPermission('ordersEdit')
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','statusHistory','updatedAt','lastEditedBy','notes']);
-      allow delete: if false; // الحذف عبر Backend.
-    }
-
-    match /{document=**} { allow read, write: if false; }
   }
 }
