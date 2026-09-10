@@ -36,7 +36,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('Origin not allowed by CORS'));
   },
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -131,8 +131,8 @@ const requirePermission = name => (req, res, next) => {
 };
 function requirePrimary(req, res, next) { if (req.isPrimaryAdmin) return next(); return res.status(403).json({ ok: false, error: 'primary_admin_required' }); }
 
-app.get('/', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '5-backend-lockdown' }));
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '5-backend-lockdown' }));
+app.get('/', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '5.1-registration-cors-fix' }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'mawaseel-admin-api', version: '5.1-registration-cors-fix' }));
 
 
 // ---------- Authenticated user API: the browser never talks to Firestore directly ----------

@@ -1,0 +1,20 @@
+MAWASEEL — First Registration Fix
+=================================
+
+سبب المشكلة:
+واجهة التسجيل تحفظ الملف الشخصي بطلب HTTP PUT إلى /api/profile.
+إعداد CORS في Backend V7 لم يكن يسمح بطريقة PUT، لذلك المتصفح كان يمنع الطلب قبل وصوله للسيرفر.
+
+تم الإصلاح:
+- إضافة PUT إلى methods في CORS داخل server.js.
+- تغيير إصدار /health إلى 5.1-registration-cors-fix لتسهيل التأكد من نشر النسخة الجديدة.
+
+طريقة التحديث على Render/GitHub:
+1) استبدل ملفات Backend الحالية بمحتويات هذا المجلد/الملف المضغوط.
+2) ارفع التغييرات إلى مستودع Backend على GitHub.
+3) انتظر Render حتى ينتهي Deploy.
+4) افتح: https://mawaseel-backend.onrender.com/health
+   ويجب أن ترى version: 5.1-registration-cors-fix
+5) جرّب إنشاء حساب جديد وحفظ بيانات الملف الشخصي.
+
+لا تحتاج لتغيير ملفات mawaseel.com لهذه المشكلة.
